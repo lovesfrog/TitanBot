@@ -9,7 +9,7 @@ export const botConfig = {
     activities: [
       {
         name: "test im cool",
-        type: 0, safafsfsaf
+        type: 0,
       },
     ],
   },
