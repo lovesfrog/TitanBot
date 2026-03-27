@@ -93,7 +93,7 @@ TitanBot offers a complete suite of tools for Discord server management and comm
 
 ### 📹 Video Tutorial
 For a detailed step-by-step setup guide, watch our comprehensive video tutorial:
-[**TitanBot Setup Tutorial**](https://www.youtube.com/@TouchDisc)
+[**TitanBot Setup Tutorial**](https://youtu.be/1jCZX8s3bJE)
 <a name="manual-installation-steps"></a>
 ## ⚙️ Manual Installation Steps
 
@@ -104,7 +104,7 @@ For a detailed step-by-step setup guide, watch our comprehensive video tutorial:
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/yourusername/TitanBot.git
+   git clone https://github.com/codebymitch/TitanBot.git
    cd TitanBot
    ```
 
