@@ -2,7 +2,7 @@
 
 **TitanBot** is a powerful, feature-rich Discord bot designed to enhance your server experience with comprehensive moderation tools, engaging economy systems, utility features, and much more. Built with modern Discord.js v14 and PostgreSQL for optimal performance and data persistence.
 
-[![Support Server](https://img.shields.io/badge/-Support%20Server-%235865F2?logo=discord&logoColor=white&style=flat-square&logoWidth=20)](https://discord.gg/YOUR_INVITE)
+[![Support Server](https://img.shields.io/badge/-Support%20Server-%235865F2?logo=discord&logoColor=white&style=flat-square&logoWidth=20)](https://discord.gg/8kJBYhTGW9)
 [![Discord.js](https://img.shields.io/npm/v/discord.js?style=flat-square&labelColor=%23202225&color=%23202225&logo=npm&logoColor=white&logoWidth=20)](https://www.npmjs.com/package/discord.js)
 ![PostgreSQL](https://img.shields.io/badge/-PostgreSQL-%23336791?logo=postgresql&logoColor=white&style=flat-square&logoWidth=20)
 
@@ -45,7 +45,7 @@ TitanBot offers a complete suite of tools for Discord server management and comm
 - **Ticket Limits** - Prevent spam
 - **Transcript System** - Save ticket history
 
-### 🔢 Server Counters
+### � Server Stats
 - **Member Counter** - Live member count channels
 - **Voice Counters** - Track voice stats
 - **Dynamic Updates** - Real-time channel updates
@@ -88,12 +88,12 @@ TitanBot offers a complete suite of tools for Discord server management and comm
 </table>
 
 <a name="quick-setup"></a>
-
 ## 🚀 Quick Setup (recommend)
 
 ### 📹 Video Tutorial
 For a detailed step-by-step setup guide, watch our comprehensive video tutorial:
-[**TitanBot Setup Tutorial**](https://youtu.be/1jCZX8s3bJE)
+[**TitanBot Setup Tutorial**](https://www.youtube.com/@TouchDisc)
+
 <a name="manual-installation-steps"></a>
 ## ⚙️ Manual Installation Steps
 
@@ -173,11 +173,6 @@ For a detailed step-by-step setup guide, watch our comprehensive video tutorial:
    ```bash
    npm start
    ```
-
-### Migration Version Guard
-- `npm run migrate` applies schema setup and records the expected schema version.
-- `npm run migrate:check` fails if the database schema version does not match the code's expected version.
-- `npm run migrate:status` prints current vs expected schema version metadata.
 <a name="database-system"></a>
 ## 🗄️ Database System
 
@@ -198,6 +193,7 @@ TitanBot uses **PostgreSQL** as its primary database with intelligent fallback t
 - **Graceful Degradation**: Bot continues functioning without database
 - **Backward Compatibility**: Maintains existing API structure
 - **Zero Downtime**: Seamless switching between database and memory
+
 <a name="bot-architecture"></a>
 ## 🏗️ Bot Architecture
 
@@ -211,6 +207,13 @@ TitanBot uses **PostgreSQL** as its primary database with intelligent fallback t
 
 ### Bot Intents
 TitanBot requires the following Discord intents:
+- Guilds
+- Guild Messages
+- Message Content
+- Guild Members
+- Guild Message Reactions
+- Guild Voice States
+- Direct Messages
 - Bot
 - Applications.commands
 
@@ -224,9 +227,11 @@ TitanBot requires the following Discord intents:
 - **Manage Channels**
 - **Manage Roles**
 - **Kick Members**
+- **Manage Messages**
 - **Ban Members**
 - **Moderate Members**
 - **Connect**
+
 <a name="contributing"></a>
 ## 🤝 Contributing
 
@@ -254,6 +259,4 @@ Thank you for choosing TitanBot for your Discord server! We're constantly workin
 
 **Made with ❤️**
 
----
-
-*Last updated: March 2026*
+*Last updated: April 2026*

@@ -29,19 +29,6 @@ export async function logTicketEvent({ client, guildId, event }) {
     }
 
     const config = await getGuildConfig(client, guildId);
-    
-    const unifiedEventType = mapTicketEventType(event.type);
-    if (config.logging?.enabled === false) {
-      return;
-    }
-    if (unifiedEventType) {
-      if (config.logging?.enabledEvents?.[unifiedEventType] === false) {
-        return;
-      }
-      if (config.logging?.enabledEvents?.['ticket.*'] === false) {
-        return;
-      }
-    }
 
     const logChannelId = getLogChannelForEventType(config, event.type);
     if (!logChannelId) {
@@ -83,24 +70,20 @@ export async function logTicketEvent({ client, guildId, event }) {
 
 
 function getLogChannelForEventType(config, eventType) {
-  const ticketLogging = config.ticketLogging || {};
-  
   switch (eventType) {
     case 'transcript':
-      return ticketLogging.transcriptChannelId || config.logChannelId;
-    
+      return config.ticketTranscriptChannelId || null;
+
     case 'open':
     case 'close':
     case 'delete':
-      return ticketLogging.lifecycleChannelId || config.logChannelId;
-    
     case 'claim':
     case 'unclaim':
     case 'priority':
-      return ticketLogging.lifecycleChannelId || config.logChannelId;
-    
+      return config.ticketLogsChannelId || null;
+
     default:
-      return config.logChannelId;
+      return null;
   }
 }
 
@@ -292,10 +275,9 @@ function getEventDisplayInfo(event) {
 export async function getTicketLoggingConfig(client, guildId) {
   const config = await getGuildConfig(client, guildId);
   return {
-    enabled: !!(config.ticketLogging?.lifecycleChannelId || config.ticketLogging?.transcriptChannelId),
-    lifecycleChannelId: config.ticketLogging?.lifecycleChannelId || null,
-    transcriptChannelId: config.ticketLogging?.transcriptChannelId || null,
-    fallbackChannelId: config.logChannelId || null
+    enabled: !!(config.ticketLogsChannelId || config.ticketTranscriptChannelId),
+    lifecycleChannelId: config.ticketLogsChannelId || null,
+    transcriptChannelId: config.ticketTranscriptChannelId || null,
   };
 }
 

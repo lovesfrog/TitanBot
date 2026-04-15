@@ -7,12 +7,12 @@ import { validateAutoVerifyCriteria } from '../../../services/verificationServic
 import { logger } from '../../../utils/logger.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { getWelcomeConfig } from '../../../utils/database.js';
+import autoVerifyDashboard from './autoVerifyDashboard.js';
 
 const autoVerifyDefaults = botConfig.verification?.autoVerify || {};
 const minAccountAgeDays = autoVerifyDefaults.minAccountAge ?? 1;
 const maxAccountAgeDays = autoVerifyDefaults.maxAccountAge ?? 365;
 const defaultAccountAgeDays = autoVerifyDefaults.defaultAccountAgeDays ?? 7;
-const serverSizeThreshold = autoVerifyDefaults.serverSizeThreshold ?? 1000;
 
 export default {
     data: new SlashCommandBuilder()
@@ -34,16 +34,15 @@ export default {
                         .setName("criteria")
                         .setDescription("Criteria for automatic verification")
                         .addChoices(
-                            { name: `Account Age (older than ${defaultAccountAgeDays} days)`, value: "account_age" },
-                            { name: `Server Members (less than ${serverSizeThreshold} members)`, value: "server_size" },
-                            { name: "No Criteria (verify everyone)", value: "none" }
+                            { name: "Account Age", value: "account_age" },
+                            { name: "No Criteria", value: "none" }
                         )
                         .setRequired(true)
                 )
                 .addIntegerOption(option =>
                     option
                         .setName("account_age_days")
-                        .setDescription("Minimum account age in days (for account age criteria)")
+                        .setDescription("Minimum account age in days (required for account age criteria)")
                         .setMinValue(minAccountAgeDays)
                         .setMaxValue(maxAccountAgeDays)
                         .setRequired(false)
@@ -51,13 +50,8 @@ export default {
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName("disable")
-                .setDescription("Disable automatic verification")
-        )
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName("status")
-                .setDescription("Check automatic verification status")
+                .setName("dashboard")
+                .setDescription("Open the auto-verification dashboard for customization")
         ),
 
     async execute(interaction, config, client) {
@@ -68,10 +62,8 @@ export default {
             switch (subcommand) {
                 case "setup":
                     return await handleSetup(interaction, guild, client);
-                case "disable":
-                    return await handleDisable(interaction, guild, client);
-                case "status":
-                    return await handleStatus(interaction, guild, client);
+                case "dashboard":
+                    return await autoVerifyDashboard.execute(interaction, config, client);
                 default:
                     throw createError(
                         `Unknown subcommand: ${subcommand}`,
@@ -171,10 +163,7 @@ async function handleSetup(interaction, guild, client) {
         let criteriaDescription = "";
         switch (criteria) {
             case "account_age":
-                criteriaDescription = `Accounts older than ${accountAgeDays} days`;
-                break;
-            case "server_size":
-                criteriaDescription = `All users (server has less than ${serverSizeThreshold} members)`;
+                criteriaDescription = `\`${accountAgeDays} days\` old`;
                 break;
             case "none":
                 criteriaDescription = "All users immediately";
@@ -200,93 +189,4 @@ async function handleSetup(interaction, guild, client) {
         throw error;
     }
 }
-
-async function handleDisable(interaction, guild, client) {
-    await InteractionHelper.safeDefer(interaction);
-
-    const guildConfig = await getGuildConfig(client, guild.id);
-    
-    if (!guildConfig.verification?.autoVerify?.enabled) {
-        return await InteractionHelper.safeEditReply(interaction, {
-            embeds: [infoEmbed("Already Disabled", "Auto-verification is already disabled.")],
-        });
-    }
-
-    guildConfig.verification.autoVerify.enabled = false;
-    await setGuildConfig(client, guild.id, guildConfig);
-
-    logger.info('Auto-verify disabled', { guildId: guild.id });
-
-    await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed(
-            "Auto-Verification Disabled",
-            "Automatic verification has been disabled. Users will now need to verify manually."
-        )]
-    });
-}
-
-async function handleStatus(interaction, guild, client) {
-    const guildConfig = await getGuildConfig(client, guild.id);
-    const welcomeConfig = await getWelcomeConfig(client, guild.id);
-    const verificationEnabled = Boolean(guildConfig.verification?.enabled);
-    const autoRoleConfigured = Boolean(guildConfig.autoRole) || (Array.isArray(welcomeConfig.roleIds) && welcomeConfig.roleIds.length > 0);
-    const conflictSummary = [
-        verificationEnabled ? 'Verification system is enabled' : null,
-        autoRoleConfigured ? 'AutoRole is configured' : null
-    ].filter(Boolean).join('\n');
-    
-    if (!guildConfig.verification?.autoVerify?.enabled) {
-        return await InteractionHelper.safeReply(interaction, {
-            embeds: [infoEmbed(
-                "Auto-Verification Status",
-                `🔴 **Status:** Disabled\n\nAuto-verification is currently disabled.\n\nUse \`/autoverify setup\` to configure it.${conflictSummary ? `\n\n⚠️ **Setup Blockers:**\n${conflictSummary}` : ''}`
-            )],
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
-    const autoVerify = guildConfig.verification.autoVerify;
-    const autoVerifyRole = autoVerify.roleId ? guild.roles.cache.get(autoVerify.roleId) : null;
-    let criteriaDescription = "";
-
-    switch (autoVerify.criteria) {
-        case "account_age":
-            criteriaDescription = `Accounts older than ${autoVerify.accountAgeDays} days`;
-            break;
-        case "server_size":
-            criteriaDescription = `All users (server has less than ${serverSizeThreshold} members)`;
-            break;
-        case "none":
-            criteriaDescription = "All users immediately";
-            break;
-    }
-
-    const statusEmbed = createEmbed({
-        title: "🤖 Auto-Verification Status",
-        description: "Current auto-verification configuration:",
-        color: getColor('success')
-    })
-    .addFields(
-        { name: "📊 Status", value: "✅ Enabled", inline: true },
-        { name: "🏷️ Target Role", value: autoVerifyRole ? autoVerifyRole.toString() : "Not found", inline: true },
-        { name: "🎯 Criteria", value: criteriaDescription, inline: true },
-        { 
-            name: "📅 Account Age Requirement", 
-            value: autoVerify.accountAgeDays ? `${autoVerify.accountAgeDays} days` : "N/A",
-            inline: true 
-        },
-        {
-            name: "⚠️ Setup Conflicts",
-            value: conflictSummary || "None",
-            inline: false
-        }
-    );
-
-    await InteractionHelper.safeReply(interaction, {
-        embeds: [statusEmbed],
-        flags: MessageFlags.Ephemeral
-    });
-}
-
-
 

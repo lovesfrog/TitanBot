@@ -4,7 +4,10 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  PermissionFlagsBits
+  PermissionFlagsBits,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  AttachmentBuilder,
 } from 'discord.js';
 import { getGuildConfig } from './guildConfig.js';
 import { getTicketData, saveTicketData, deleteTicketData, getOpenTicketCountForUser } from '../utils/database.js';
@@ -134,15 +137,15 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
             PermissionFlagsBits.ReadMessageHistory,
           ],
         },
-        ...(ticketConfig.supportRoles?.map(roleId => ({
-          id: roleId,
+        ...(config.ticketStaffRoleId ? [{
+          id: config.ticketStaffRoleId,
           allow: [
             PermissionFlagsBits.ViewChannel,
             PermissionFlagsBits.SendMessages,
             PermissionFlagsBits.AttachFiles,
             PermissionFlagsBits.ReadMessageHistory,
           ],
-        })) || []),
+        }] : []),
       ],
     });
     
@@ -184,10 +187,10 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
         .setStyle(ButtonStyle.Primary)
         .setEmoji('🙋'),
       new ButtonBuilder()
-        .setCustomId('ticket_transcript')
-        .setLabel('Transcript')
+        .setCustomId('ticket_pin')
+        .setLabel('Pin')
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji('📜')
+        .setEmoji('📌')
     );
     
     if (ticketConfig.enablePriority) {
@@ -205,13 +208,16 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       );
     }
     
-    const messageContent = `${member.toString()}${ticketConfig.supportRoles?.length ? ' ' + ticketConfig.supportRoles.map(r => `<@&${r}>`).join(' ') : ''}`;
+    const staffMention = config.ticketStaffRoleId ? ` <@&${config.ticketStaffRoleId}>` : '';
+    const messageContent = `${member.toString()}${staffMention}`;
     
-    await channel.send({ 
+    const ticketMessage = await channel.send({ 
       content: messageContent,
       embeds: [embed],
       components: [row] 
     });
+
+    await ticketMessage.pin().catch(() => {});
     
     await logTicketEvent({
       client: guild.client,
@@ -300,8 +306,36 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
             color: '#e74c3c',
             footer: { text: `Ticket ID: ${ticketData.id}` }
           });
-          
+
           await ticketCreator.send({ embeds: [dmEmbed] });
+
+          // Post-close feedback survey — separate DM message so it can be updated on submit
+          try {
+            const feedbackEmbed = createEmbed({
+              title: '⭐ How was your support experience?',
+              description: `We'd love to know how we did with **${channel.name}**.\nSelect a rating below — it only takes a second!`,
+              color: '#F1C40F',
+              footer: { text: 'Your feedback helps us improve.' },
+            });
+
+            const feedbackSelect = new StringSelectMenuBuilder()
+              .setCustomId(`ticket_feedback:${channel.guild.id}:${channel.id}`)
+              .setPlaceholder('Select a rating...')
+              .addOptions(
+                new StringSelectMenuOptionBuilder().setLabel('⭐ 1 — Poor').setValue('1').setDescription('The support was unhelpful or slow.'),
+                new StringSelectMenuOptionBuilder().setLabel('⭐⭐ 2 — Below Average').setValue('2').setDescription('There was room for improvement.'),
+                new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐ 3 — Average').setValue('3').setDescription('Support was okay.'),
+                new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐ 4 — Good').setValue('4').setDescription('Support was helpful and friendly.'),
+                new StringSelectMenuOptionBuilder().setLabel('⭐⭐⭐⭐⭐ 5 — Excellent').setValue('5').setDescription('Outstanding support experience!'),
+              );
+
+            await ticketCreator.send({
+              embeds: [feedbackEmbed],
+              components: [new ActionRowBuilder().addComponents(feedbackSelect)],
+            });
+          } catch (feedbackError) {
+            logger.warn(`Could not send feedback survey to ticket creator ${ticketData.userId}: ${feedbackError.message}`);
+          }
         }
       } catch (dmError) {
           logger.warn(`Could not send DM to ticket creator ${ticketData.userId}: ${dmError.message}`);
@@ -469,10 +503,10 @@ export async function claimTicket(channel, claimer) {
           .setEmoji('🙋')
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId('ticket_transcript')
-          .setLabel('Transcript')
+          .setCustomId('ticket_pin')
+          .setLabel('Pin')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji('📜')
+          .setEmoji('📌')
       );
       
       await ticketMessage.edit({ 
@@ -631,10 +665,10 @@ export async function reopenTicket(channel, reopener) {
           .setEmoji('🙋')
           .setDisabled(!!ticketData.claimedBy),
         new ButtonBuilder()
-          .setCustomId('ticket_transcript')
-          .setLabel('Transcript')
+          .setCustomId('ticket_pin')
+          .setLabel('Pin')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji('📜')
+          .setEmoji('📌')
       );
       
       await ticketMessage.edit({ 
@@ -692,6 +726,103 @@ export async function reopenTicket(channel, reopener) {
   }
 }
 
+// Helper function to escape HTML special characters
+function escapeHtml(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function generateTranscript(channel) {
+  try {
+    logger.debug('Generating transcript for channel', {
+      channelId: channel.id,
+      channelName: channel.name
+    });
+
+    // Fetch all messages by paginating
+    const messages = [];
+    let before = undefined;
+    let batch;
+    do {
+      batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+      if (batch.size === 0) break;
+      messages.push(...batch.values());
+      before = batch.last()?.id;
+    } while (batch.size === 100);
+
+    messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+    const escape = (str) =>
+      String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const rows = messages.map((msg) => {
+      const ts = new Date(msg.createdTimestamp).toISOString().replace('T', ' ').slice(0, 19);
+      const author = escape(msg.author?.tag ?? msg.author?.username ?? 'Unknown');
+      const content = escape(msg.content || (msg.embeds.length ? '[embed]' : '[attachment]'));
+      return `<tr><td class="ts">${ts}</td><td class="author">${author}</td><td class="msg">${content}</td></tr>`;
+    }).join('\n');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Transcript – #${escape(channel.name)}</title>
+<style>
+body{font-family:sans-serif;background:#36393f;color:#dcddde;margin:0;padding:16px}
+h1{color:#fff;font-size:1.2rem;margin-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:0.85rem}
+th{background:#2f3136;color:#8e9297;padding:6px 8px;text-align:left;border-bottom:2px solid #202225}
+td{padding:4px 8px;border-bottom:1px solid #40444b;vertical-align:top}
+.ts{color:#72767d;white-space:nowrap;width:160px}
+.author{color:#7289da;white-space:nowrap;width:160px}
+.msg{word-break:break-word}
+</style>
+</head>
+<body>
+<h1>📜 Transcript – #${escape(channel.name)}</h1>
+<p style="color:#72767d">${messages.length} message(s) exported on ${new Date().toUTCString()}</p>
+<table>
+<thead><tr><th>Timestamp (UTC)</th><th>Author</th><th>Message</th></tr></thead>
+<tbody>
+${rows}
+</tbody>
+</table>
+</body>
+</html>`;
+
+    const buffer = Buffer.from(html, 'utf8');
+    const attachment = new AttachmentBuilder(buffer, { name: `ticket-${channel.id}.html` });
+
+    logger.info('✅ Successfully generated transcript', {
+      channelId: channel.id,
+      channelName: channel.name,
+      messageCount: messages.length,
+      size: buffer.length
+    });
+
+    return attachment;
+  } catch (error) {
+    logger.error('❌ Failed to generate transcript:', {
+      channelId: channel.id,
+      channelName: channel.name,
+      errorMessage: error.message,
+      errorName: error.name,
+      errorStack: error.stack
+    });
+    return null;
+  }
+}
+
 export async function deleteTicket(channel, deleter) {
   try {
     const ticketData = await getTicketData(channel.guild.id, channel.id);
@@ -722,13 +853,127 @@ export async function deleteTicket(channel, deleter) {
         }
       }
     });
-    
+
+    // Generate and send transcript if transcript channel is configured
     setTimeout(async () => {
       try {
-        await channel.delete('Ticket deleted permanently');
-        logger.info(`Deleted ticket channel ${channel.name} (${channel.id})`);
-      } catch (deleteError) {
-        logger.error(`Failed to delete ticket channel ${channel.id}:`, deleteError);
+        logger.debug('Starting ticket deletion process', {
+          channelId: channel.id,
+          ticketId: ticketData.id
+        });
+
+        // Generate transcript
+        let attachment = null;
+        try {
+          attachment = await generateTranscript(channel);
+          if (attachment) {
+            logger.info('Transcript generated successfully, attempting to send', {
+              channelId: channel.id,
+              ticketNumber: ticketData.id
+            });
+          } else {
+            logger.warn('Transcript generation returned null', {
+              channelId: channel.id,
+              ticketNumber: ticketData.id
+            });
+          }
+        } catch (transcriptError) {
+          logger.error('Error during transcript generation', {
+            channelId: channel.id,
+            ticketNumber: ticketData.id,
+            error: transcriptError.message
+          });
+        }
+
+        // Send transcript to configured channel if it was generated
+        if (attachment) {
+          try {
+            const guildConfig = await getGuildConfig(channel.client, channel.guild.id);
+            if (!guildConfig.ticketTranscriptChannelId) {
+              logger.warn('No transcript channel configured, skipping transcript send', {
+                channelId: channel.id,
+                ticketNumber: ticketData.id
+              });
+            } else {
+              const transcriptChannel = await channel.client.channels.fetch(guildConfig.ticketTranscriptChannelId).catch(() => null);
+              
+              if (!transcriptChannel) {
+                logger.error('Could not fetch transcript channel', {
+                  channelId: channel.id,
+                  transcriptChannelId: guildConfig.ticketTranscriptChannelId
+                });
+              } else if (!transcriptChannel.isSendable()) {
+                logger.error('Transcript channel exists but is not sendable', {
+                  channelId: channel.id,
+                  transcriptChannelId: transcriptChannel.id
+                });
+              } else {
+                // Send transcript with embed
+                const transcriptEmbed = new EmbedBuilder()
+                  .setTitle('📜 Ticket Transcript')
+                  .setDescription(`Transcript for ticket #${ticketData.id}`)
+                  .setColor('#3498db')
+                  .addFields(
+                    { name: 'Ticket ID', value: `\`${ticketData.id}\``, inline: true },
+                    { name: 'Channel', value: `#${channel.name}`, inline: true },
+                    { name: 'Generated', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
+                  );
+
+                if (deleter?.username) {
+                  transcriptEmbed.setFooter({ 
+                    text: `Deleted by: ${deleter.username}`, 
+                    iconURL: deleter.displayAvatarURL?.() 
+                  });
+                }
+
+                await transcriptChannel.send({
+                  embeds: [transcriptEmbed],
+                  files: [attachment]
+                });
+
+                logger.info('✅ Transcript sent successfully', {
+                  channelId: channel.id,
+                  ticketNumber: ticketData.id,
+                  transcriptChannelId: transcriptChannel.id
+                });
+              }
+            }
+          } catch (sendError) {
+            logger.error('Failed to send transcript to channel:', {
+              channelId: channel.id,
+              ticketNumber: ticketData.id,
+              error: sendError.message
+            });
+          }
+        }
+
+        // Delete the channel (regardless of transcript success)
+        try {
+          await channel.delete('Ticket deleted permanently');
+          logger.info('✅ Channel deleted', {
+            channelId: channel.id,
+            channelName: channel.name,
+            ticketNumber: ticketData.id
+          });
+        } catch (deleteError) {
+          logger.error('❌ Failed to delete ticket channel:', {
+            channelId: channel.id,
+            channelName: channel.name,
+            ticketNumber: ticketData.id,
+            errorMessage: deleteError.message,
+            errorCode: deleteError.code,
+            errorName: deleteError.name
+          });
+        }
+      } catch (error) {
+        logger.error('❌ Unexpected error during ticket deletion:', {
+          channelId: channel.id,
+          channelName: channel?.name,
+          ticketNumber: ticketData?.id,
+          errorMessage: error.message,
+          errorName: error.name,
+          errorStack: error.stack
+        });
       }
     }, TICKET_DELETE_DELAY_MS);
     
@@ -810,10 +1055,10 @@ export async function unclaimTicket(channel, unclaimer) {
           .setStyle(ButtonStyle.Primary)
           .setEmoji('🙋'),
         new ButtonBuilder()
-          .setCustomId('ticket_transcript')
-          .setLabel('Transcript')
+          .setCustomId('ticket_pin')
+          .setLabel('Pin')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji('📜')
+          .setEmoji('📌')
       );
       
       await ticketMessage.edit({ 

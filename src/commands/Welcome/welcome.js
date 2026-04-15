@@ -5,7 +5,6 @@ import { getWelcomeConfig, updateWelcomeConfig } from '../../utils/database.js';
 import { formatWelcomeMessage } from '../../utils/welcome.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { buildWelcomeConfigPayload, hasWelcomeSetup } from './modules/welcomeConfig.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -32,15 +31,7 @@ export default {
                 .addBooleanOption(option =>
                     option.setName('ping')
                         .setDescription('Whether to ping the user in the welcome message')
-                        .setRequired(false)))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('toggle')
-                .setDescription('Enable or disable welcome messages'))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('config')
-                .setDescription('Customize your existing welcome setup with buttons')),
+                        .setRequired(false))),
 
     async execute(interaction) {
         try {
@@ -133,7 +124,7 @@ export default {
                         { name: 'Ping User', value: ping ? '✅ Yes' : '❌ No' },
                         { name: 'Status', value: '✅ Enabled' }
                     )
-                    .setFooter({ text: 'Tip: Use /welcome toggle to enable/disable welcome messages' });
+                    .setFooter({ text: 'Tip: Use /welcome config to customize welcome settings' });
 
                 if (image) {
                     embed.setImage(image);
@@ -146,63 +137,6 @@ export default {
                     embeds: [errorEmbed(
                         'Setup Failed',
                         'An error occurred while configuring the welcome system. Please try again.',
-                        { showDetails: true }
-                    )],
-                    flags: MessageFlags.Ephemeral
-                });
-            }
-        } 
-        else if (subcommand === 'config') {
-            try {
-                const currentConfig = await getWelcomeConfig(client, guild.id);
-
-                if (!hasWelcomeSetup(currentConfig)) {
-                    return await InteractionHelper.safeEditReply(interaction, {
-                        embeds: [errorEmbed(
-                            'No Welcome Setup Found',
-                            'Set up welcome first using **/welcome setup**.'
-                        )],
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
-
-                await InteractionHelper.safeEditReply(
-                    interaction,
-                    buildWelcomeConfigPayload(guild, currentConfig, 'Use the buttons below to customize your welcome setup.')
-                );
-            } catch (error) {
-                logger.error(`[Welcome] Failed to load welcome config panel for guild ${guild.id}:`, error);
-                await InteractionHelper.safeEditReply(interaction, {
-                    embeds: [errorEmbed(
-                        'Config Panel Failed',
-                        'An error occurred while loading the welcome config panel. Please try again.',
-                        { showDetails: true }
-                    )],
-                    flags: MessageFlags.Ephemeral
-                });
-            }
-        }
-        
-        else if (subcommand === 'toggle') {
-            try {
-                const currentConfig = await getWelcomeConfig(client, guild.id);
-                const newStatus = !currentConfig.enabled;
-                
-                await updateWelcomeConfig(client, guild.id, {
-                    enabled: newStatus
-                });
-
-                logger.info(`[Welcome] Toggled to ${newStatus ? 'enabled' : 'disabled'} by ${interaction.user.tag} in guild ${guild.name} (${guild.id})`);
-                await InteractionHelper.safeEditReply(interaction, {
-                    content: `✅ Welcome messages have been ${newStatus ? 'enabled' : 'disabled'}.`,
-                    flags: MessageFlags.Ephemeral
-                });
-            } catch (error) {
-                logger.error(`[Welcome] Failed to toggle welcome system for guild ${guild.id}:`, error);
-                await InteractionHelper.safeEditReply(interaction, {
-                    embeds: [errorEmbed(
-                        'Toggle Failed',
-                        'An error occurred while toggling welcome messages. Please try again.',
                         { showDetails: true }
                     )],
                     flags: MessageFlags.Ephemeral

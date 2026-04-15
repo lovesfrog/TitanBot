@@ -7,9 +7,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logger } from '../../utils/logger.js';
 import { handleInteractionError } from '../../utils/errorHandler.js';
 
-import ticketLimitsSet from './modules/ticket_limits_set.js';
-import ticketLimitsCheck from './modules/ticket_limits_check.js';
-import ticketLimitsToggleDM from './modules/ticket_limits_toggle_dm.js';
+import ticketConfig from './modules/ticket_dashboard.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -89,39 +87,10 @@ export default {
                         .setRequired(false),
                 ),
         )
-        .addSubcommandGroup((group) =>
-            group
-                .setName("limits")
-                .setDescription("Manage ticket limits and settings")
-                .addSubcommand((subcommand) =>
-                    subcommand
-                        .setName("set")
-                        .setDescription("Set the maximum number of tickets per user")
-                        .addIntegerOption((option) =>
-                            option
-                                .setName("max_tickets")
-                                .setDescription("Maximum number of tickets a user can create (1-10)")
-                                .setMinValue(1)
-                                .setMaxValue(10)
-                                .setRequired(true)
-                        )
-                )
-                .addSubcommand((subcommand) =>
-                    subcommand
-                        .setName("check")
-                        .setDescription("Check a user's current ticket count")
-                        .addUserOption((option) =>
-                            option
-                                .setName("user")
-                                .setDescription("The user to check")
-                                .setRequired(true)
-                        )
-                )
-                .addSubcommand((subcommand) =>
-                    subcommand
-                        .setName("toggle_dm")
-                        .setDescription("Toggle DM notifications when tickets are closed")
-                )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("dashboard")
+                .setDescription("Open the interactive ticket system dashboard"),
         ),
     category: "ticket",
 
@@ -154,29 +123,24 @@ export default {
             }
 
             const subcommand = interaction.options.getSubcommand();
-            const subcommandGroup = interaction.options.getSubcommandGroup();
 
-        if (subcommandGroup === "limits") {
-            switch (subcommand) {
-                case "set":
-                    return ticketLimitsSet.execute(interaction, config, client);
-                case "check":
-                    return ticketLimitsCheck.execute(interaction, config, client);
-                case "toggle_dm":
-                    return ticketLimitsToggleDM.execute(interaction, config, client);
-                default:
-                    return InteractionHelper.safeEditReply(interaction, {
-                        embeds: [
-                            errorEmbed(
-                                "Invalid Subcommand",
-                                "Please select a valid limits subcommand."
-                            ),
-                        ],
-                    });
-            }
+        if (subcommand === "dashboard") {
+            return ticketConfig.execute(interaction, config, client);
         }
 
         if (subcommand === "setup") {
+            const existingConfig = await getGuildConfig(client, interaction.guildId);
+            if (existingConfig?.ticketPanelChannelId) {
+                return await InteractionHelper.safeEditReply(interaction, {
+                    embeds: [
+                        errorEmbed(
+                            'Ticket System Already Active',
+                            `This server already has a ticket system set up (panel in <#${existingConfig.ticketPanelChannelId}>).\n\nOnly one ticket system is supported per server. Use \`/ticket dashboard\` to edit or update the existing setup, or select **Delete System** from the dashboard to remove it and start fresh.`,
+                        ),
+                    ],
+                });
+            }
+
             const panelChannel =
                 interaction.options.getChannel("panel_channel");
             const categoryChannel = interaction.options.getChannel("category");
@@ -210,14 +174,13 @@ description: panelMessage,
                 });
 
                 if (client.db && interaction.guildId) {
-                    const currentConfig = await getGuildConfig(
-                        client,
-                        interaction.guildId,
-                    );
+                    const currentConfig = existingConfig;
                     currentConfig.ticketCategoryId = categoryChannel ? categoryChannel.id : null;
                     currentConfig.ticketClosedCategoryId = closedCategoryChannel ? closedCategoryChannel.id : null;
                     currentConfig.ticketStaffRoleId = staffRole ? staffRole.id : null;
                     currentConfig.ticketPanelChannelId = panelChannel.id;
+                    currentConfig.ticketPanelMessage = panelMessage;
+                    currentConfig.ticketButtonLabel = buttonLabel;
                     currentConfig.maxTicketsPerUser = maxTicketsPerUser;
                     currentConfig.dmOnClose = dmOnClose;
 

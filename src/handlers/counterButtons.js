@@ -1,6 +1,6 @@
 import { MessageFlags } from 'discord.js';
 import { createEmbed, errorEmbed, successEmbed } from '../utils/embeds.js';
-import { performDeletionByCounterId } from '../commands/Counter/modules/counter_delete.js';
+import { performDeletionByCounterId } from '../commands/ServerStats/modules/serverstats_delete.js';
 import { logger } from '../utils/logger.js';
 
 export const counterDeleteActionHandler = {

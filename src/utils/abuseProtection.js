@@ -32,7 +32,7 @@ const RISKY_COMMAND_NAMES = new Set([
   'lock',
   'unlock',
   'ticket',
-  'rsetup'
+  'reactroles'
 ]);
 
 const blockedAttemptStore = new Map();

@@ -2,7 +2,7 @@ import { Events, MessageFlags } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
 import { handleApplicationModal } from '../commands/Community/apply.js';
-import { handleApplicationButton, handleApplicationReviewModal } from '../commands/Community/app-admin.js';
+import { handleApplicationReviewModal } from '../commands/Community/app-admin.js';
 import { handleInteractionError, createError, ErrorTypes } from '../utils/errorHandler.js';
 import { MessageTemplates } from '../utils/messageTemplates.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
@@ -95,20 +95,134 @@ export default {
               commandName: interaction.commandName
             }, interactionTraceContext));
           }
-        } else if (interaction.isButton()) {
-          if (interaction.customId.startsWith('app_approve_') || interaction.customId.startsWith('app_deny_')) {
+        } else if (interaction.isAutocomplete()) {
+          // Handle autocomplete interactions
+          const focusedOption = interaction.options.getFocused(true);
+          
+          if (interaction.commandName === 'apply' && focusedOption.name === 'application') {
             try {
-              await handleApplicationButton(interaction);
+              const { getApplicationRoles } = await import('../utils/database.js');
+              const roles = await getApplicationRoles(client, interaction.guildId);
+              const roleName = interaction.options.getString('application', false);
+              
+              // Filter: only show enabled applications
+              const filtered = roles.filter(role =>
+                role.enabled !== false && 
+                role.name.toLowerCase().startsWith(roleName?.toLowerCase() || '')
+              );
+              
+              await interaction.respond(
+                filtered.slice(0, 25).map(role => ({
+                  name: `${role.name}${role.enabled === false ? ' (disabled)' : ''}`,
+                  value: role.name
+                }))
+              );
             } catch (error) {
-              await handleInteractionError(interaction, error, withTraceContext({
-                type: 'button',
-                customId: interaction.customId,
-                handler: 'application'
-              }, interactionTraceContext));
+              logger.error('Error handling autocomplete:', {
+                error: error.message,
+                guildId: interaction.guildId,
+                commandName: interaction.commandName
+              });
+              await interaction.respond([]);
             }
-            return;
+          } else if (interaction.commandName === 'app-admin' && focusedOption.name === 'application') {
+            try {
+              const { getApplicationRoles } = await import('../utils/database.js');
+              const roles = await getApplicationRoles(client, interaction.guildId);
+              const appName = interaction.options.getString('application', false);
+              
+              // Show all applications (enabled and disabled), but mark disabled ones
+              const filtered = roles.filter(role =>
+                role.name.toLowerCase().startsWith(appName?.toLowerCase() || '')
+              );
+              
+              await interaction.respond(
+                filtered.slice(0, 25).map(role => ({
+                  name: `${role.name}${role.enabled === false ? ' (disabled)' : ''}`,
+                  value: role.name
+                }))
+              );
+            } catch (error) {
+              logger.error('Error handling app-admin autocomplete:', {
+                error: error.message,
+                guildId: interaction.guildId,
+                commandName: interaction.commandName
+              });
+              await interaction.respond([]);
+            }
+          } else if (interaction.commandName === 'reactroles' && focusedOption.name === 'panel') {
+            try {
+              const { getAllReactionRoleMessages, deleteReactionRoleMessage } = await import('../services/reactionRoleService.js');
+              const guildId = interaction.guildId;
+              const guild = interaction.guild;
+              
+              let panels = await getAllReactionRoleMessages(client, guildId);
+              
+              if (!panels || panels.length === 0) {
+                await interaction.respond([]);
+                return;
+              }
+              
+              // Filter out panels whose messages no longer exist
+              const validPanels = [];
+              for (const panel of panels) {
+                if (!panel.messageId || !panel.channelId) {
+                  continue;
+                }
+                
+                const channel = guild.channels.cache.get(panel.channelId);
+                if (!channel) {
+                  await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
+                  continue;
+                }
+                
+                const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
+                if (!msg) {
+                  await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});
+                  continue;
+                }
+                validPanels.push(panel);
+              }
+              
+              if (validPanels.length === 0) {
+                await interaction.respond([]);
+                return;
+              }
+              
+              const choices = await Promise.all(
+                validPanels.slice(0, 25).map(async panel => {
+                  try {
+                    const channel = guild.channels.cache.get(panel.channelId);
+                    if (!channel) return null;
+                    
+                    const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
+                    if (!msg) return null;
+                    
+                    const title = msg?.embeds?.[0]?.title ?? 'Untitled Panel';
+                    const channelName = channel?.name ?? 'unknown';
+                    
+                    return {
+                      name: `${title} (${channelName})`.substring(0, 100),
+                      value: panel.messageId
+                    };
+                  } catch (e) {
+                    return null;
+                  }
+                })
+              );
+              
+              const validChoices = choices.filter(c => c !== null);
+              await interaction.respond(validChoices);
+            } catch (error) {
+              logger.error('Error handling reactroles autocomplete:', {
+                error: error.message,
+                guildId: interaction.guildId,
+                commandName: interaction.commandName
+              });
+              await interaction.respond([]);
+            }
           }
-
+        } else if (interaction.isButton()) {
           if (interaction.customId.startsWith('shared_todo_')) {
             const parts = interaction.customId.split('_');
             const buttonType = parts.slice(0, 3).join('_');
@@ -166,6 +280,13 @@ export default {
           const selectMenu = client.selectMenus.get(customId);
 
           if (!selectMenu) {
+            if (!interaction.customId.includes(':')) {
+              // No registered handler and no ':' delimiter — this is an inline-collected
+              // select menu (e.g. ticket_config_<guildId>, jointocreate_config_<id>).
+              // Return silently so the existing MessageComponentCollector handles it.
+              return;
+            }
+
             throw createError(
               `No select menu handler found for ${customId}`,
               ErrorTypes.CONFIGURATION,
@@ -221,6 +342,12 @@ export default {
           const modal = client.modals.get(customId);
 
           if (!modal) {
+            if (!interaction.customId.includes(':')) {
+              // No registered handler and no ':' delimiter — this is an inline-awaited
+              // modal (e.g. via awaitModalSubmit). Return silently so the caller handles it.
+              return;
+            }
+
             throw createError(
               `No modal handler found for ${customId}`,
               ErrorTypes.CONFIGURATION,

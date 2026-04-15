@@ -101,7 +101,7 @@ export async function getLeaderboard(client, guildId, limit = 10) {
       if (member.user.bot) continue;
       
       const data = await getUserLevelData(client, guildId, userId);
-      if (data && data.totalXp > 0) {
+      if (data && (data.totalXp > 0 || data.level > 0)) {
         leaderboard.push({
           userId,
           username: member.user.username,
@@ -513,6 +513,29 @@ export async function setUserLevel(client, guildId, userId, level) {
       ErrorTypes.DATABASE,
       'Could not set level at this time.'
     );
+  }
+}
+
+
+
+
+export async function deleteUserLevelData(client, guildId, userId) {
+  try {
+    if (!guildId || !userId) {
+      throw new TitanBotError(
+        'Guild ID and User ID are required',
+        ErrorTypes.VALIDATION
+      );
+    }
+
+    const key = `${guildId}:leveling:users:${userId}`;
+    await client.db.delete(key);
+    
+    logger.debug(`Deleted level data for user ${userId} in guild ${guildId}`);
+  } catch (error) {
+    logger.error(`Error deleting level data for user ${userId}:`, error);
+    if (error instanceof TitanBotError) throw error;
+    logger.warn(`Could not delete level data for user ${userId} in guild ${guildId}`);
   }
 }
 

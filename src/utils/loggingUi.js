@@ -10,6 +10,61 @@ const EVENT_TYPES_BY_CATEGORY = Object.values(EVENT_TYPES).reduce((accumulator, 
   return accumulator;
 }, {});
 
+const DASHBOARD_CATEGORY_EMOJIS = {
+  moderation: '🔨',
+  ticket: '🎫',
+  message: '✉️',
+  role: '🏷️',
+  member: '👥',
+  leveling: '📈',
+  reactionrole: '🎭',
+  giveaway: '🎁',
+  counter: '📊',
+};
+
+function createDashboardCategoryButtons(enabledEvents = {}, loggingEnabled = false) {
+  const categories = ['moderation', 'ticket', 'message', 'role', 'member', 'leveling', 'reactionrole', 'giveaway', 'counter'];
+  const buttons = categories.map((category) => {
+    const wildcardDisabled = enabledEvents[`${category}.*`] === false;
+    const categoryEvents = EVENT_TYPES_BY_CATEGORY[category] || [];
+    const allEnabled = categoryEvents.length === 0
+      ? true
+      : categoryEvents.every((t) => enabledEvents[t] !== false);
+    const isEnabled = loggingEnabled && !wildcardDisabled && allEnabled;
+    const emoji = DASHBOARD_CATEGORY_EMOJIS[category] || '📌';
+    const label = `${emoji} ${category.charAt(0).toUpperCase() + category.slice(1)}`;
+    return new ButtonBuilder()
+      .setCustomId(`log_dash_toggle:${category}.*`)
+      .setLabel(label)
+      .setStyle(isEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
+  });
+
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+  }
+  return rows;
+}
+
+export function createLoggingDashboardComponents(enabledEvents, loggingEnabled = false) {
+  const categoryRows = createDashboardCategoryButtons(enabledEvents, loggingEnabled);
+  const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('log_dash_toggle:audit_enabled')
+      .setLabel(loggingEnabled ? '🧾 Audit: ON' : '🧾 Audit: OFF')
+      .setStyle(loggingEnabled ? ButtonStyle.Success : ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('log_dash_toggle:all')
+      .setLabel('Toggle All')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('log_dash_refresh')
+      .setLabel('🔄 Refresh')
+      .setStyle(ButtonStyle.Primary),
+  );
+  return [...categoryRows, actionRow];
+}
+
 
 
 

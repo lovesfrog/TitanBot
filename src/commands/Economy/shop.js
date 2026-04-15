@@ -1,123 +1,60 @@
-import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, MessageFlags } from 'discord.js';
-import { shopItems } from '../../config/shop/items.js';
-import { getColor } from '../../config/bot.js';
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { errorEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
+
+import shopBrowse from './modules/shop_browse.js';
+import shopConfigSetrole from './modules/shop_config_setrole.js';
 
 export default {
     data: new SlashCommandBuilder()
         .setName('shop')
-        .setDescription('View the economy shop with pagination'),
+        .setDescription('Economy shop commands.')
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('browse')
+                .setDescription('Browse the economy shop.'),
+        )
+        .addSubcommandGroup(group =>
+            group
+                .setName('config')
+                .setDescription('Configure shop settings. (Manage Server required)')
+                .addSubcommand(subcommand =>
+                    subcommand
+                        .setName('setrole')
+                        .setDescription('Set the Discord role granted when the Premium Role shop item is purchased.')
+                        .addRoleOption(option =>
+                            option
+                                .setName('role')
+                                .setDescription('The role to grant for Premium Role purchases.')
+                                .setRequired(true),
+                        ),
+                ),
+        ),
 
     async execute(interaction, config, client) {
         try {
-            const TARGET_MAX_PAGES = 3;
-            const ITEMS_PER_PAGE = Math.max(1, Math.ceil(shopItems.length / TARGET_MAX_PAGES));
-            const totalPages = Math.ceil(shopItems.length / ITEMS_PER_PAGE);
-            let currentPage = 1;
+            const subcommandGroup = interaction.options.getSubcommandGroup(false);
+            const subcommand = interaction.options.getSubcommand();
 
-            const createShopEmbed = (page) => {
-                const startIndex = (page - 1) * ITEMS_PER_PAGE;
-                const endIndex = startIndex + ITEMS_PER_PAGE;
-                const pageItems = shopItems.slice(startIndex, endIndex);
+            if (subcommand === 'browse') {
+                return await shopBrowse.execute(interaction, config, client);
+            }
 
-                const embed = new EmbedBuilder()
-                    .setTitle("🛒 Store")
-                    .setColor(getColor('primary'))
-                    .setDescription('Use `/buy item_id:<id> quantity:<amount>` to purchase an item.');
+            if (subcommandGroup === 'config' && subcommand === 'setrole') {
+                return await shopConfigSetrole.execute(interaction, config, client);
+            }
 
-                pageItems.forEach(item => {
-                    embed.addFields({
-                        name: `${item.name} (${item.id})`,
-                        value: `🏷️ **Type:** ${item.type}\n💚 **Price:** $${item.price.toLocaleString()}\n${item.description}`,
-                        inline: false,
-                    });
-                });
-
-                embed.setFooter({ text: `Page ${page}/${totalPages}` });
-                return embed;
-            };
-
-            const createShopComponents = (page) => {
-                if (totalPages <= 1) {
-                    return [];
-                }
-
-                return [
-                    new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('shop_prev')
-                            .setLabel('⬅️ Previous')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setDisabled(page === 1),
-                        new ButtonBuilder()
-                            .setCustomId('shop_next')
-                            .setLabel('Next ➡️')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setDisabled(page === totalPages)
-                    )
-                ];
-            };
-
-            const message = await interaction.reply({
-                embeds: [createShopEmbed(currentPage)],
-                components: createShopComponents(currentPage),
-                flags: 0
-            });
-
-            const collector = message.createMessageComponentCollector({
-                componentType: ComponentType.Button,
-                time: 300000
-            });
-
-            collector.on('collect', async (buttonInteraction) => {
-                if (buttonInteraction.user.id !== interaction.user.id) {
-                    await buttonInteraction.reply({
-                        content: '❌ You cannot use these buttons. Run `/shop` to get your own shop view.',
-                        flags: 64
-                    });
-                    return;
-                }
-
-                const { customId } = buttonInteraction;
-
-                if (customId === 'shop_prev' || customId === 'shop_next') {
-                    await buttonInteraction.deferUpdate();
-                    if (customId === 'shop_prev' && currentPage > 1) {
-                        currentPage--;
-                    } else if (customId === 'shop_next' && currentPage < totalPages) {
-                        currentPage++;
-                    }
-                    await buttonInteraction.editReply({
-                        embeds: [createShopEmbed(currentPage)],
-                        components: createShopComponents(currentPage)
-                    });
-                }
-            });
-
-            collector.on('end', async () => {
-                try {
-                    const disabledComponents = createShopComponents(currentPage);
-                    disabledComponents.forEach(row => {
-                        row.components.forEach(button => button.setDisabled(true));
-                    });
-
-                    await message.edit({
-                        components: disabledComponents
-                    });
-                } catch (error) {
-                    
-                }
+            return InteractionHelper.safeReply(interaction, {
+                embeds: [errorEmbed('Error', 'Unknown subcommand.')],
+                flags: MessageFlags.Ephemeral,
             });
         } catch (error) {
-            logger.error('Shop command error:', error);
-            await interaction.reply({
-                content: '❌ An error occurred while loading the shop.',
-                flags: MessageFlags.Ephemeral
-            });
+            logger.error('shop command error:', error);
+            await InteractionHelper.safeReply(interaction, {
+                content: '❌ An error occurred while running the shop command.',
+                flags: MessageFlags.Ephemeral,
+            }).catch(() => {});
         }
     },
 };
-
-
-
-

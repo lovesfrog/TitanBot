@@ -1,14 +1,31 @@
 import { 
     getJoinToCreateConfig, 
     removeJoinToCreateTrigger,
-    unregisterTemporaryChannel
+    unregisterTemporaryChannel,
+    getTicketData,
+    saveTicketData
 } from '../utils/database.js';
-import { getServerCounters, saveServerCounters } from '../services/counterService.js';
+import { getServerCounters, saveServerCounters } from '../services/serverstatsService.js';
 import { logger } from '../utils/logger.js';
 
 export default {
     name: 'channelDelete',
     async execute(channel, client) {
+        // Handle ticket text channel deletion
+        if (channel.type === 0 && channel.guild) {
+            try {
+                const ticketData = await getTicketData(channel.guild.id, channel.id);
+                if (ticketData && ticketData.status === 'open') {
+                    ticketData.status = 'deleted';
+                    ticketData.closedAt = new Date().toISOString();
+                    await saveTicketData(channel.guild.id, channel.id, ticketData);
+                    logger.info(`Ticket channel ${channel.id} was manually deleted in guild ${channel.guild.id}, marked as deleted`);
+                }
+            } catch (err) {
+                logger.warn(`Could not clean up ticket record for deleted channel ${channel.id}:`, err);
+            }
+        }
+
 if (channel.type !== 2 && channel.type !== 4) {
             return;
         }

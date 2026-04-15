@@ -60,7 +60,7 @@ export default {
         leaderboard.map(async (user, index) => {
           try {
             const member = await interaction.guild.members.fetch(user.userId).catch(() => null);
-            const username = member?.user?.tag || `Unknown User (${user.userId})`;
+            const userMention = member?.user.toString() || `<@${user.userId}>`;
             const xpForNextLevel = getXpForLevel(user.level + 1);
 
             let rankPrefix = `${index + 1}.`;
@@ -69,7 +69,7 @@ export default {
             else if (index === 2) rankPrefix = '🥉';
             else rankPrefix = `**${index + 1}.**`;
 
-            return `${rankPrefix} ${username} - Level ${user.level} (${user.xp}/${xpForNextLevel} XP)`;
+            return `${rankPrefix} ${userMention} - Level ${user.level} (${user.xp}/${xpForNextLevel} XP)`;
           } catch {
             return `**${index + 1}.** Error loading user ${user.userId}`;
           }

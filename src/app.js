@@ -4,15 +4,10 @@ import { REST } from '@discordjs/rest';
 import express from 'express';
 import cron from 'node-cron';
 
-import { ReadableStream } from 'web-streams-polyfill';
-if (typeof global.ReadableStream === 'undefined') {
-    global.ReadableStream = ReadableStream;
-}
-
 import config from './config/application.js';
 import { initializeDatabase } from './utils/database.js';
 import { getGuildConfig } from './services/guildConfig.js';
-import { getServerCounters, saveServerCounters, updateCounter } from './services/counterService.js';
+import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
 import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { checkBirthdays } from './services/birthdayService.js';
 import { checkGiveaways } from './services/giveawayService.js';

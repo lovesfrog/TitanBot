@@ -290,12 +290,9 @@ export async function deleteReactionRoleMessage(client, guildId, messageId) {
         const data = await getReactionRoleMessage(client, guildId, messageId);
         
         if (!data) {
-            throw createError(
-                `Reaction role message not found: ${messageId}`,
-                ErrorTypes.CONFIGURATION,
-                'No reaction role message found with that ID in this server.',
-                { guildId, messageId }
-            );
+            // Data doesn't exist - this is fine, just return (idempotent delete)
+            logger.debug(`Reaction role message ${messageId} does not exist in guild ${guildId}, nothing to delete`);
+            return true;
         }
         
         await client.db.delete(key);
@@ -427,8 +424,10 @@ export async function getAllReactionRoleMessages(client, guildId) {
                         actualData = data;
                     }
                     
-                    if (actualData) {
+                    if (actualData && actualData.messageId && actualData.channelId) {
                         messages.push(actualData);
+                    } else if (actualData) {
+                        logger.warn(`Skipping malformed reaction role data for guild ${guildId}:`, actualData);
                     }
                 }
             } catch (dataError) {
@@ -437,7 +436,6 @@ export async function getAllReactionRoleMessages(client, guildId) {
             }
         }
 
-        logger.debug(`Retrieved ${messages.length} reaction role messages for guild ${guildId}`);
         return messages;
     } catch (error) {
         if (error.name === 'TitanBotError') {

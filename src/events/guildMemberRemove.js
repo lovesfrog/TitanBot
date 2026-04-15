@@ -1,10 +1,11 @@
 import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { getColor } from '../config/bot.js';
-import { getWelcomeConfig } from '../utils/database.js';
+import { getWelcomeConfig, getUserApplications, deleteApplication } from '../utils/database.js';
 import { formatWelcomeMessage } from '../utils/welcome.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
-import { getServerCounters, updateCounter } from '../services/counterService.js';
+import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
 import { getGuildBirthdays, deleteBirthday } from '../utils/database.js';
+import { deleteUserLevelData } from '../services/leveling.js';
 import { logger } from '../utils/logger.js';
 
 export default {
@@ -134,6 +135,27 @@ export default {
             }
         } catch (error) {
             logger.debug('Error handling birthday on member leave:', error);
+        }
+        
+        // Remove all pending applications when a member leaves
+        try {
+            const userApplications = await getUserApplications(member.client, guild.id, user.id);
+            if (userApplications && userApplications.length > 0) {
+                for (const app of userApplications) {
+                    await deleteApplication(member.client, guild.id, app.id, user.id);
+                }
+                logger.debug(`Removed ${userApplications.length} applications for user ${user.id} in guild ${guild.id}`);
+            }
+        } catch (error) {
+            logger.debug('Error handling applications on member leave:', error);
+        }
+
+        // Remove leveling data when a member leaves
+        try {
+            await deleteUserLevelData(member.client, guild.id, user.id);
+            logger.debug(`Removed leveling data for user ${user.id} in guild ${guild.id}`);
+        } catch (error) {
+            logger.debug('Error handling leveling data on member leave:', error);
         }
         
     } catch (error) {

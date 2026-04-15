@@ -630,7 +630,7 @@ export async function getOpenTicketCountForUser(guildId, userId) {
                 `SELECT COUNT(*)::int AS count FROM ${pgConfig.tables.tickets}
                  WHERE guild_id = $1
                    AND data->>'userId' = $2
-                   AND COALESCE(data->>'status', 'open') = 'open'`,
+                   AND data->>'status' = 'open'`,
                 [guildId, userId]
             );
 
@@ -1334,6 +1334,59 @@ export async function saveApplicationSettings(client, guildId, settings) {
         return true;
     } catch (error) {
         logger.error(`Error saving application settings for guild ${guildId}:`, error);
+        return false;
+    }
+}
+
+// ────────── Per-Application Settings (Questions & Log Channel) ──────────
+
+function getApplicationRoleSettingsKey(guildId, roleId) {
+    return `guild:${guildId}:applications:role:${roleId}:settings`;
+}
+
+export async function getApplicationRoleSettings(client, guildId, roleId) {
+    try {
+        if (!client.db || typeof client.db.get !== "function") {
+            return { questions: null, logChannelId: null };
+        }
+
+        const key = getApplicationRoleSettingsKey(guildId, roleId);
+        const settings = await client.db.get(key, {});
+        return unwrapReplitData(settings) || { questions: null, logChannelId: null };
+    } catch (error) {
+        logger.error(`Error getting application role settings for ${guildId}:${roleId}:`, error);
+        return { questions: null, logChannelId: null };
+    }
+}
+
+export async function saveApplicationRoleSettings(client, guildId, roleId, settings) {
+    try {
+        if (!client.db || typeof client.db.set !== "function") {
+            logger.error("Database client is not available for saveApplicationRoleSettings.");
+            return false;
+        }
+
+        const key = getApplicationRoleSettingsKey(guildId, roleId);
+        await client.db.set(key, settings);
+        return true;
+    } catch (error) {
+        logger.error(`Error saving application role settings for ${guildId}:${roleId}:`, error);
+        return false;
+    }
+}
+
+export async function deleteApplicationRoleSettings(client, guildId, roleId) {
+    try {
+        if (!client.db || typeof client.db.delete !== "function") {
+            logger.error("Database client is not available for deleteApplicationRoleSettings.");
+            return false;
+        }
+
+        const key = getApplicationRoleSettingsKey(guildId, roleId);
+        await client.db.delete(key);
+        return true;
+    } catch (error) {
+        logger.error(`Error deleting application role settings for ${guildId}:${roleId}:`, error);
         return false;
     }
 }

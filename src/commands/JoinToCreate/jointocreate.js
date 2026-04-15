@@ -61,7 +61,7 @@ export default {
         )
         .addSubcommand((subcommand) =>
             subcommand
-                .setName("config")
+                .setName("dashboard")
                 .setDescription("Configure an existing Join to Create system.")
                 .addChannelOption((option) =>
                     option
@@ -92,7 +92,7 @@ export default {
             if (subcommand === "setup") {
                 await handleSetupSubcommand(interaction, client);
                 return;
-            } else if (subcommand === "config") {
+            } else if (subcommand === "dashboard") {
                 await handleConfigSubcommand(interaction, client);
                 return;
             }
@@ -158,7 +158,7 @@ async function handleSetupSubcommand(interaction, client) {
 
             if (activeTriggerChannels.length > 0) {
                 const primaryTrigger = activeTriggerChannels[0];
-                const errorMessage = `This server already has a Join to Create channel set up: ${primaryTrigger}\n\nUse \`/jointocreate config\` to modify it, or remove it first before creating a new one.`;
+                const errorMessage = `This server already has a Join to Create channel set up: ${primaryTrigger}\n\nUse \`/jointocreate dashboard\` to modify it, or remove it first before creating a new one.`;
 
                 throw new TitanBotError(
                     'Guild already has a Join to Create channel',
@@ -302,7 +302,7 @@ async function handleConfigSubcommand(interaction, client) {
             throw new TitanBotError(
                 'Failed to fetch interaction reply for collector setup',
                 ErrorTypes.DISCORD_API,
-                'Failed to open configuration controls. Please run `/jointocreate config` again.'
+                'Failed to open configuration controls. Please run `/jointocreate dashboard` again.'
             );
         }
 
@@ -608,7 +608,7 @@ async function handleChannelDeletion(interaction, triggerChannel, currentConfig,
             filter: (i) => i.user.id === interaction.user.id && 
                           (i.customId === `jtc_delete_confirm_${triggerChannel.id}` || 
                            i.customId === `jtc_delete_cancel_${triggerChannel.id}`),
-            time: 30000,
+            time: 600_000,
             max: 1
         });
 

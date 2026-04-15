@@ -8,6 +8,7 @@ import { ContextualMessages } from '../../utils/messageTemplates.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { getWelcomeConfig } from '../../utils/database.js';
+import verificationDashboard from './modules/verification_dashboard.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -47,11 +48,6 @@ export default {
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName("verify")
-                .setDescription("Verify yourself (for users to use)")
-        )
-        .addSubcommand(subcommand =>
-            subcommand
                 .setName("remove")
                 .setDescription("Remove verification from a user")
                 .addUserOption(option =>
@@ -63,13 +59,8 @@ export default {
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName("disable")
-                .setDescription("Disable the verification system")
-        )
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName("status")
-                .setDescription("Check verification system status")
+                .setName("dashboard")
+                .setDescription("Open the verification system configuration dashboard")
         ),
 
     async execute(interaction, config, client) {
@@ -77,7 +68,7 @@ export default {
             const subcommand = interaction.options.getSubcommand();
             const guild = interaction.guild;
 
-            if (subcommand !== 'verify' && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+            if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
                 throw createError(
                     'Missing ManageGuild permission for verification admin subcommand',
                     ErrorTypes.PERMISSION,
@@ -89,14 +80,10 @@ export default {
             switch (subcommand) {
                 case "setup":
                     return await handleSetup(interaction, guild, client);
-                case "verify":
-                    return await handleVerify(interaction, guild, client);
                 case "remove":
                     return await handleRemove(interaction, guild, client);
-                case "disable":
-                    return await handleDisable(interaction, guild, client);
-                case "status":
-                    return await handleStatus(interaction, guild, client);
+                case "dashboard":
+                    return await verificationDashboard.execute(interaction, config, client);
                 default:
                     throw createError(
                         `Unknown subcommand: ${subcommand}`,
@@ -237,38 +224,6 @@ async function handleSetup(interaction, guild, client) {
     });
 }
 
-async function handleVerify(interaction, guild, client) {
-    const result = await verifyUser(client, guild.id, interaction.user.id, {
-        source: 'command_self',
-        moderatorId: null
-    });
-
-    if (!result.success) {
-        if (result.alreadyVerified) {
-            return await InteractionHelper.safeReply(interaction, {
-                embeds: [infoEmbed("Already Verified", "You are already verified.")],
-                flags: MessageFlags.Ephemeral
-            });
-        }
-
-        return await InteractionHelper.safeReply(interaction, {
-            embeds: [errorEmbed(
-                "Verification Failed",
-                "An error occurred during verification. Please try again or contact an administrator."
-            )],
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
-    await InteractionHelper.safeReply(interaction, {
-        embeds: [successEmbed(
-            "Verification Complete",
-            `You have been verified and given the **${result.roleName}** role! Welcome to the server! 🎉`
-        )],
-        flags: MessageFlags.Ephemeral
-    });
-}
-
 async function handleRemove(interaction, guild, client) {
     const targetUser = interaction.options.getUser("user");
     
@@ -304,107 +259,6 @@ async function handleRemove(interaction, guild, client) {
             { command: 'verification', subcommand: 'remove' }
         );
     }
-}
-
-async function handleDisable(interaction, guild, client) {
-    const guildConfig = await getGuildConfig(client, guild.id);
-    
-    if (!guildConfig.verification?.enabled) {
-        return await InteractionHelper.safeReply(interaction, {
-            embeds: [infoEmbed("Already Disabled", "The verification system is already disabled.")],
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
-    await InteractionHelper.safeDefer(interaction);
-
-    if (guildConfig.verification.channelId && guildConfig.verification.messageId) {
-        const channel = guild.channels.cache.get(guildConfig.verification.channelId);
-        if (channel) {
-            try {
-                const message = await channel.messages.fetch(guildConfig.verification.messageId);
-                if (message) {
-                    await message.delete();
-                }
-            } catch (error) {
-                logger.info("Could not delete verification message (may have been deleted already):", error.message);
-            }
-        }
-    }
-
-    guildConfig.verification.enabled = false;
-    await setGuildConfig(client, guild.id, guildConfig);
-
-    await InteractionHelper.safeEditReply(interaction, {
-        embeds: [successEmbed("Verification Disabled", "The verification system has been disabled and the verification message has been removed.")]
-    });
-}
-
-async function handleStatus(interaction, guild, client) {
-    const guildConfig = await getGuildConfig(client, guild.id);
-    const welcomeConfig = await getWelcomeConfig(client, guild.id);
-    const autoVerifyEnabled = Boolean(guildConfig.verification?.autoVerify?.enabled);
-    const autoRoleConfigured = Boolean(guildConfig.autoRole) || (Array.isArray(welcomeConfig.roleIds) && welcomeConfig.roleIds.length > 0);
-    const conflictSummary = [
-        autoVerifyEnabled ? 'AutoVerify is enabled' : null,
-        autoRoleConfigured ? 'AutoRole is configured' : null
-    ].filter(Boolean).join('\n');
-    
-    if (!guildConfig.verification?.enabled) {
-        return await InteractionHelper.safeReply(interaction, {
-            embeds: [infoEmbed(
-                "Verification Status",
-                `🔴 **Status:** Disabled\n\nThe verification system is not currently enabled on this server.\n\nUse \`/verification setup\` to enable it.${conflictSummary ? `\n\n⚠️ **Setup Blockers:**\n${conflictSummary}` : ''}`
-            )],
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
-    const verificationChannel = guild.channels.cache.get(guildConfig.verification.channelId);
-    const verifiedRole = guild.roles.cache.get(guildConfig.verification.roleId);
-
-    const statusEmbed = createEmbed({
-        title: "✅ Verification System Status",
-        description: "Current verification system configuration:",
-        color: getColor('success')
-    })
-    .addFields(
-        {
-            name: "📢 Verification Channel",
-            value: verificationChannel ? verificationChannel.toString() : "Not found",
-            inline: true
-        },
-        {
-            name: "🏷️ Verified Role",
-            value: verifiedRole ? verifiedRole.toString() : "Not found",
-            inline: true
-        },
-        {
-            name: "🔘 Button Text",
-            value: guildConfig.verification.buttonText || "Verify",
-            inline: true
-        },
-        {
-            name: "📝 Custom Message",
-            value: guildConfig.verification.message ? "✅ Configured" : "❌ Not set",
-            inline: true
-        },
-        {
-            name: "👥 Verified Users",
-            value: verifiedRole ? `${verifiedRole.members.size} users` : "Unknown",
-            inline: true
-        },
-        {
-            name: "⚠️ Setup Conflicts",
-            value: conflictSummary || "None",
-            inline: false
-        }
-    );
-
-    await InteractionHelper.safeReply(interaction, {
-        embeds: [statusEmbed],
-        flags: MessageFlags.Ephemeral
-    });
 }
 
 

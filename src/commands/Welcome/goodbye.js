@@ -5,7 +5,6 @@ import { getWelcomeConfig, updateWelcomeConfig } from '../../utils/database.js';
 import { formatWelcomeMessage } from '../../utils/welcome.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { buildGoodbyeConfigPayload, hasGoodbyeSetup } from './modules/goodbyeConfig.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -32,15 +31,7 @@ export default {
                 .addBooleanOption(option =>
                     option.setName('ping')
                         .setDescription('Whether to ping the user in the goodbye message')
-                        .setRequired(false)))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('toggle')
-                .setDescription('Enable or disable goodbye messages'))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('config')
-                .setDescription('Customize your existing goodbye setup with buttons')),
+                        .setRequired(false))),
 
     async execute(interaction) {
         const deferSuccess = await InteractionHelper.safeDefer(interaction);
@@ -135,7 +126,7 @@ export default {
                         { name: 'Ping User', value: ping ? '✅ Yes' : '❌ No' },
                         { name: 'Status', value: '✅ Enabled' }
                     )
-                    .setFooter({ text: 'Tip: Use /goodbye toggle to enable/disable goodbye messages' });
+                    .setFooter({ text: 'Tip: Use /goodbye config to customize goodbye settings' });
 
                 if (image) {
                     embed.setImage(image);
@@ -148,63 +139,6 @@ export default {
                     embeds: [errorEmbed(
                         'Setup Failed',
                         'An error occurred while configuring the goodbye system. Please try again.',
-                        { showDetails: true }
-                    )],
-                    flags: MessageFlags.Ephemeral
-                });
-            }
-        }
-        else if (subcommand === 'config') {
-            try {
-                const currentConfig = await getWelcomeConfig(client, guild.id);
-
-                if (!hasGoodbyeSetup(currentConfig)) {
-                    return await InteractionHelper.safeEditReply(interaction, {
-                        embeds: [errorEmbed(
-                            'No Goodbye Setup Found',
-                            'Set up goodbye first using **/goodbye setup**.'
-                        )],
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
-
-                await InteractionHelper.safeEditReply(
-                    interaction,
-                    buildGoodbyeConfigPayload(guild, currentConfig, 'Use the buttons below to customize your goodbye setup.')
-                );
-            } catch (error) {
-                logger.error(`[Goodbye] Failed to load goodbye config panel for guild ${guild.id}:`, error);
-                await InteractionHelper.safeEditReply(interaction, {
-                    embeds: [errorEmbed(
-                        'Config Panel Failed',
-                        'An error occurred while loading the goodbye config panel. Please try again.',
-                        { showDetails: true }
-                    )],
-                    flags: MessageFlags.Ephemeral
-                });
-            }
-        }
-        
-        else if (subcommand === 'toggle') {
-            try {
-                const currentConfig = await getWelcomeConfig(client, guild.id);
-                const newStatus = !currentConfig.goodbyeEnabled;
-                
-                await updateWelcomeConfig(client, guild.id, {
-                    goodbyeEnabled: newStatus
-                });
-
-                logger.info(`[Goodbye] Toggled to ${newStatus ? 'enabled' : 'disabled'} by ${interaction.user.tag} in guild ${guild.name} (${guild.id})`);
-                await InteractionHelper.safeEditReply(interaction, {
-                    content: `✅ Goodbye messages have been ${newStatus ? 'enabled' : 'disabled'}.`,
-                    flags: MessageFlags.Ephemeral
-                });
-            } catch (error) {
-                logger.error(`[Goodbye] Failed to toggle goodbye system for guild ${guild.id}:`, error);
-                await InteractionHelper.safeEditReply(interaction, {
-                    embeds: [errorEmbed(
-                        'Toggle Failed',
-                        'An error occurred while toggling goodbye messages. Please try again.',
                         { showDetails: true }
                     )],
                     flags: MessageFlags.Ephemeral

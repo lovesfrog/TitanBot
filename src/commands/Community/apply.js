@@ -11,7 +11,8 @@ import {
     createApplication, 
     getApplication,
     getApplicationRoles,
-    updateApplication
+    updateApplication,
+    getApplicationRoleSettings
 } from '../../utils/database.js';
 
 function getApplicationStatusPresentation(statusValue) {
@@ -43,6 +44,7 @@ export default {
                         .setName("application")
                         .setDescription("The application you want to submit")
                         .setRequired(true)
+                        .setAutocomplete(true),
                 ),
         )
         .addSubcommand((subcommand) =>
@@ -76,7 +78,8 @@ export default {
         const subcommand = options.getSubcommand();
 
         if (subcommand !== "submit") {
-            await InteractionHelper.safeDefer(interaction, { flags: ["Ephemeral"] });
+            const isListCommand = subcommand === "list";
+            await InteractionHelper.safeDefer(interaction, { flags: isListCommand ? [] : ["Ephemeral"] });
         }
 
         logger.info(`Apply command executed: ${subcommand}`, {
@@ -138,7 +141,13 @@ export async function handleApplicationModal(interaction) {
     
     const answers = [];
     const settings = await getApplicationSettings(interaction.client, interaction.guild.id);
-    const questions = settings.questions || ["Why do you want this role?", "What is your experience?"];
+    
+    // Get questions - use per-application questions if they exist, otherwise use global
+    let questions = settings.questions || ["Why do you want this role?", "What is your experience?"];
+    const roleSettings = await getApplicationRoleSettings(interaction.client, interaction.guild.id, roleId);
+    if (roleSettings.questions && roleSettings.questions.length > 0) {
+        questions = roleSettings.questions;
+    }
     
     for (let i = 0; i < questions.length; i++) {
         const answer = interaction.fields.getTextInputValue(`q${i}`);
@@ -169,8 +178,13 @@ export async function handleApplicationModal(interaction) {
         await InteractionHelper.safeEditReply(interaction, { embeds: [embed], flags: ["Ephemeral"] });
         
         const settings = await getApplicationSettings(interaction.client, interaction.guild.id);
-        if (settings.logChannelId) {
-            const logChannel = interaction.guild.channels.cache.get(settings.logChannelId);
+        const roleSettings = await getApplicationRoleSettings(interaction.client, interaction.guild.id, roleId);
+        
+        // Use per-application log channel if exists, otherwise use global
+        const logChannelId = roleSettings.logChannelId || settings.logChannelId;
+        
+        if (logChannelId) {
+            const logChannel = interaction.guild.channels.cache.get(logChannelId);
             if (logChannel) {
                 const logEmbed = createEmbed({
                     title: '📝 New Application',
@@ -185,7 +199,7 @@ export async function handleApplicationModal(interaction) {
                 
                 await updateApplication(interaction.client, interaction.guild.id, application.id, {
                     logMessageId: logMessage.id,
-                    logChannelId: settings.logChannelId
+                    logChannelId: logChannelId
                 });
             }
         }
@@ -213,7 +227,6 @@ async function handleList(interaction) {
         if (applicationRoles.length === 0) {
             return InteractionHelper.safeEditReply(interaction, {
                 embeds: [errorEmbed("No applications are currently available.")],
-                flags: ["Ephemeral"],
             });
         }
 
@@ -236,7 +249,7 @@ async function handleList(interaction) {
             text: "Use /apply submit application:<name> to apply for any of these roles."
         });
 
-        return InteractionHelper.safeEditReply(interaction, { embeds: [embed], flags: ["Ephemeral"] });
+        return InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
     } catch (error) {
         logger.error('Error listing applications:', {
             error: error.message,
@@ -305,8 +318,12 @@ async function handleSubmit(interaction, settings) {
         .setCustomId(`app_modal_${applicationRole.roleId}`)
         .setTitle(`Application for ${applicationRole.name}`);
 
-    const questions =
-        settings.questions || ["Why do you want this role?", "What is your experience?"];
+    // Get questions - use per-application questions if they exist, otherwise use global
+    let questions = settings.questions || ["Why do you want this role?", "What is your experience?"];
+    const roleSettings = await getApplicationRoleSettings(interaction.client, interaction.guild.id, applicationRole.roleId);
+    if (roleSettings.questions && roleSettings.questions.length > 0) {
+        questions = roleSettings.questions;
+    }
 
     questions.forEach((question, index) => {
         const input = new TextInputBuilder()
